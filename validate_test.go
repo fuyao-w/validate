@@ -173,12 +173,15 @@ func TestReplace(t *testing.T) {
 }
 
 func TestParsePartition(t *testing.T) {
-	t.Log(parsePartition(left, "[~", numCompare{}, "1"))
-	t.Log(parsePartition(left, "[1", numCompare{}, "1"))
-	t.Log(parsePartition(left, "(3", numCompare{}, "3"))
-	t.Log(parsePartition(right, "4]", numCompare{}, "1"))
-	t.Log(parsePartition(right, "3)", numCompare{}, "3"))
-	t.Log(parsePartition(right, "~]", numCompare{}, "3"))
+	toValue := func(v int64) reflect.Value {
+		return reflect.ValueOf(v)
+	}
+	t.Log(parseAndValidPartition(left, "[~", numOrderIns, toValue(1)))
+	t.Log(parseAndValidPartition(left, "[1", numOrderIns, toValue(1)))
+	t.Log(parseAndValidPartition(left, "(3", numOrderIns, toValue(2)))
+	t.Log(parseAndValidPartition(right, "4]", numOrderIns, toValue(1)))
+	t.Log(parseAndValidPartition(right, "3)", numOrderIns, toValue(3)))
+	t.Log(parseAndValidPartition(right, "~]", numOrderIns, toValue(3)))
 
 }
 
@@ -229,10 +232,11 @@ func TestValidate(t *testing.T) {
 }
 
 func TestToTimeDuration(t *testing.T) {
-	t.Log(toTimeDuration("1min"))
-	t.Log(toTimeDuration("1day"))
-	t.Log(toTimeDuration("13milli"))
-	t.Log(toTimeDuration("13900milli"))
+	t.Log(parseInt64("1m"))
+	t.Log(parseInt64("1min"))
+	t.Log(parseInt64("1d"))
+	t.Log(parseInt64("13milli"))
+	t.Log(parseInt64("13900milli"))
 }
 
 func TestParserTimeDur(t *testing.T) {
@@ -243,7 +247,7 @@ func TestParserTimeDur(t *testing.T) {
 func TestGetInt(t *testing.T) {
 	var i uint64 = math.MaxUint64
 	var b uint64 = math.MaxUint64
-	numCompare{}.lt(number2Str(reflect.ValueOf(i)), number2Str(reflect.ValueOf(b)))
+	numOrderIns.lt(number2Str(reflect.ValueOf(i)), number2Str(reflect.ValueOf(b)))
 
 }
 
@@ -259,6 +263,7 @@ type Param struct {
 	D time.Duration `valid:"[500milli,3h]"`
 	E uint64
 	F uint64 `valid:"[self.C,self.E]"`
+	G string `valid:"[1,~]"`
 }
 
 func TestFu(t *testing.T) {
@@ -284,4 +289,39 @@ func TestDuration(t *testing.T) {
 	//dur1 := reflect.TypeOf(time.Duration(1))
 	//t.Log(dur1 == dur)
 	t.Log(dur.Kind().String())
+}
+
+func TestNilPtr(t *testing.T) {
+	zero := (*int32)(nil)
+	dur := getNonPtrValue(reflect.ValueOf(&zero))
+	//dur1 := reflect.TypeOf(time.Duration(1))
+	//t.Log(dur1 == dur)
+	t.Log(dur.Kind())
+}
+
+func TestStringValid(t *testing.T) {
+	type S struct {
+		name string `valid:"[1,~]"`
+	}
+	var s = S{
+		name: "3",
+	}
+	t.Log(Validate(s))
+
+}
+
+func TestRecursion(t *testing.T) {
+	type family struct {
+		father *string `valid:"[2,~]"`
+	}
+	type S struct {
+		Family family
+		//comp complex64 `valid:"[2,~]"`
+	}
+	var fat = "ss"
+	var s = S{
+		family{father: &fat},
+		//1,
+	}
+	t.Log(Validate(s))
 }
