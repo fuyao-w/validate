@@ -21,9 +21,27 @@ type (
 	timeCompare struct{}
 )
 
+type checkFunc func(field, val, control string) error
+
+type direction int
+
 const (
+	left direction = iota + 1
+	right
+)
+
+const (
+	validTag        = "valid"
+	durationType    = "time.Duration"
+	selfPlaceholder = "self."
+)
+
+const (
+	// timeRegexp 时间类型正则
 	timeRegexp = `^[[(]\s*(\d+([mdh]|milli)){1}\s*,\s*(\d+([mdh]|milli)){1}\s*[])]$`
-	numRegexp  = `^[[(]\s*([+-]?\d+)|~{1}\s*,\s*([+-]?\d+)|~{1}\s*[])]$`
+	// numRegexp 数值类型正则
+	numRegexp = `^[[(]\s*([+-]?\d+)|~{1}\s*,\s*([+-]?\d+)|~{1}\s*[])]$`
+	// selfRegexp self 类型正则
 	selfRegexp = `self\.\w+`
 )
 
@@ -33,7 +51,26 @@ var regMap = map[string]*regexp.Regexp{
 	selfRegexp: regexp.MustCompile(selfRegexp),
 }
 
+var (
+	numReg = regexp.MustCompile(`\d+`)
+)
+
 var errParseFail = errors.New("parse string fail")
+
+var isNumKind = map[string]bool{
+	"int":     true,
+	"int8":    true,
+	"int16":   true,
+	"int32":   true,
+	"int64":   true,
+	"uint":    true,
+	"uint8":   true,
+	"uint16":  true,
+	"uint32":  true,
+	"uint64":  true,
+	"float64": true,
+	"float32": true,
+}
 
 func toInt64(val string) int64 {
 	res, _ := strconv.ParseInt(val, 10, 64)
@@ -45,10 +82,6 @@ func toUint64(val string) (uint64, error) {
 func toFloat64(val string) (float64, error) {
 	return strconv.ParseFloat(val, 64)
 }
-
-var (
-	numReg = regexp.MustCompile(`\d+`)
-)
 
 // parseTimeDuration 将时间字符串解析成 数字+单位
 func parseTimeDuration(val string) (num int64, unit string) {
@@ -164,15 +197,6 @@ func checkTagValidate(exp string, val string) {
 	}
 }
 
-type checkFunc func(field, val, control string) error
-
-type direction int
-
-const (
-	left direction = iota + 1
-	right
-)
-
 func parsePartition(direction direction, val string, comp compare, control string) (success bool, _ string) {
 	var rangeKey, target string
 	switch direction {
@@ -227,19 +251,17 @@ func replaceSelfExp(str string, t reflect.Type, v reflect.Value) string {
 	}
 
 	for _, s := range list {
-		name := strings.Trim(s, "self.")
+		name := strings.Trim(s, selfPlaceholder)
 		_, ok := t.FieldByName(name)
 		if !ok {
 			panic(fmt.Errorf("field :%s not exist", name))
 		}
 
-		value := v.FieldByName(name)
+		value := getNonPtrValue(v.FieldByName(name))
 		if !value.IsValid() {
 			panic(fmt.Errorf("not found filed :%s", s))
 		}
-		if !value.CanInt() && !value.CanUint() {
-			panic(fmt.Errorf("filed :%s can't convert to int", s))
-		}
+		checkNumber(value, s)
 		str = strings.Replace(str, s, number2Str(value), 1)
 	}
 	return str
@@ -264,6 +286,20 @@ func getValueStruct(t reflect.Value) reflect.Value {
 	return getValueStruct(t.Elem())
 }
 
+func getNonPtrValue(value reflect.Value) reflect.Value {
+	if value.Kind() == reflect.Pointer {
+		return getNonPtrValue(value.Elem())
+	}
+	return value
+}
+
+func getNonPtrType(t reflect.Type) reflect.Type {
+	if t.Kind() == reflect.Pointer {
+		return getNonPtrType(t.Elem())
+	}
+	return t
+}
+
 // Validate 校验结构体的字段是否合法
 /*
 - 使用 `valid` tag 进行标记
@@ -275,26 +311,26 @@ func Validate(i interface{}) error {
 	iType := getTypeStruct(reflect.TypeOf(i))
 	iValue := getValueStruct(reflect.ValueOf(i))
 
-	for i := 0; i < iType.NumField(); i++ {
-		field := iType.Field(i)
+	for idx := 0; idx < iType.NumField(); idx++ {
+		field := iType.Field(idx)
 
-		valid := replaceSelfExp(field.Tag.Get("valid"), iType, iValue)
-		if valid == "" {
+		valid := replaceSelfExp(field.Tag.Get(validTag), iType, iValue)
+		if len(valid) == 0 {
 			continue
 		}
 		var doCheck checkFunc
 		switch {
-		case isNumKind[field.Type.String()]:
+		case isNumKind[getNonPtrType(field.Type).String()]:
 			checkTagValidate(numRegexp, valid)
 			doCheck = builder(numCompare{})
-		case field.Type.String() == "time.Duration":
+		case field.Type.String() == durationType:
 			checkTagValidate(timeRegexp, valid)
 			doCheck = builder(timeCompare{})
+		default:
+			panic("unrecognized field type")
 		}
-
-		value := iValue.Field(i)
+		value := getNonPtrValue(iValue.Field(idx))
 		checkNumber(value, field.Name)
-
 		if err := doCheck(field.Name, valid, number2Str(value)); err != nil {
 			return err
 		}
@@ -319,21 +355,5 @@ func number2Str(value reflect.Value) string {
 	if value.CanFloat() {
 		return strconv.FormatFloat(value.Float(), 'e', 10, 64)
 	}
-	fmt.Println("sd")
 	panic("getInt err")
-}
-
-var isNumKind = map[string]bool{
-	"int":     true,
-	"int8":    true,
-	"int16":   true,
-	"int32":   true,
-	"int64":   true,
-	"uint":    true,
-	"uint8":   true,
-	"uint16":  true,
-	"uint32":  true,
-	"uint64":  true,
-	"float64": true,
-	"float32": true,
 }

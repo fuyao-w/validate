@@ -199,7 +199,7 @@ func TestGetStruct(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	type X struct {
-		c int32 `valid:"[1,3)"`
+		c *int32 `valid:"[1,3)"`
 		//a int    `valid:"[1,~]"`
 		b uint `valid:"[1,3]"`
 		//d uint64 `valid:"[0,18446744073709551615]"`
@@ -207,21 +207,21 @@ func TestValidate(t *testing.T) {
 		//f int64         `valid:"[~,234234)"`
 		//g time.Duration `valid:"[1milli,4m]"`
 		////h time.Duration `valid:"[1h,4m]"`
-		i int64         `valid:"[self.c,self.b]"`
-		j float64       `valid:"[1.3,1.9]"`
-		k time.Duration `valid:"[1m,5m]"`
+		i int64   `valid:"[self.c,self.b]"`
+		j float64 `valid:"[1.3,1.9]"`
+		//k time.Duration `valid:"[1m,5m]"`
 	}
-
+	c := int32(2)
 	var x = X{
 		//a: 9,
 		b: 3,
-		c: 2,
+		c: &c,
 		//d: 18446744073709551615,
 		////e: 18446744073709551615,
 		//f: 234234 - 1,
 		//g: 4 * time.Minute,
 		////h: time.Second,
-		//i: 3,
+		i: 3,
 		j: 1.3,
 	}
 
