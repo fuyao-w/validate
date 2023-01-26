@@ -21,6 +21,18 @@ type (
 	timeCompare struct{}
 )
 
+const (
+	timeRegexp = `^[[(]\s*(\d+([mdh]|milli)){1}\s*,\s*(\d+([mdh]|milli)){1}\s*[])]$`
+	numRegexp  = `^[[(]\s*([+-]?\d+)|~{1}\s*,\s*([+-]?\d+)|~{1}\s*[])]$`
+	selfRegexp = `self\.\w+`
+)
+
+var regMap = map[string]*regexp.Regexp{
+	timeRegexp: regexp.MustCompile(timeRegexp),
+	numRegexp:  regexp.MustCompile(numRegexp),
+	selfRegexp: regexp.MustCompile(selfRegexp),
+}
+
 var errParseFail = errors.New("parse string fail")
 
 func toInt64(val string) int64 {
@@ -143,18 +155,6 @@ func (n numCompare) gt(control, target string) bool {
 		return c > t
 	}
 	return toInt64(control) > toInt64(target)
-}
-
-const (
-	timeRegexp = `^[[(](\d+([mdh]|milli)){1},(\d+([mdh]|milli)){1}[])]$`
-	numRegexp  = `^[[(]([+-]?\d+)|~{1},([+-]?\d+)|~{1}[])]$`
-	selfRegexp = `self\.\w+`
-)
-
-var regMap = map[string]*regexp.Regexp{
-	timeRegexp: regexp.MustCompile(timeRegexp),
-	numRegexp:  regexp.MustCompile(numRegexp),
-	selfRegexp: regexp.MustCompile(selfRegexp),
 }
 
 func checkTagValidate(exp string, val string) {

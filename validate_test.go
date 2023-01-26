@@ -43,7 +43,7 @@ func TestReG(t *testing.T) {
 	}
 	testCaseList := []testCase{
 		{
-			str: "[4milli,4milli]",
+			str: "[ 4milli ,4milli]",
 			res: true,
 		},
 		{
@@ -102,7 +102,7 @@ func TestReG(t *testing.T) {
 	doCheck(timeRegexp, testCaseList)
 	doCheck(numRegexp, []testCase{
 		{
-			str: "[1,3]",
+			str: "[ 1,3]",
 			res: true,
 		},
 		{
