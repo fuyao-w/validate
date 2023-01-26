@@ -32,9 +32,10 @@ const (
 
 const (
 	validTag        = "valid"
-	durationType    = "time.Duration"
 	selfPlaceholder = "self."
 )
+
+var durationType = reflect.TypeOf(time.Duration(0))
 
 const (
 	// timeRegexp 时间类型正则
@@ -244,7 +245,7 @@ func builder(comp compare) checkFunc {
 }
 
 // replaceSelfExp 将 self.{字段名} 替换成具体值
-func replaceSelfExp(str string, t reflect.Type, v reflect.Value) string {
+func replaceSelfExp(str string, v reflect.Value) string {
 	list := regMap[selfRegexp].FindAllString(str, -1)
 	if len(list) == 0 {
 		return str
@@ -252,11 +253,6 @@ func replaceSelfExp(str string, t reflect.Type, v reflect.Value) string {
 
 	for _, s := range list {
 		name := strings.Trim(s, selfPlaceholder)
-		_, ok := t.FieldByName(name)
-		if !ok {
-			panic(fmt.Errorf("field :%s not exist", name))
-		}
-
 		value := getNonPtrValue(v.FieldByName(name))
 		if !value.IsValid() {
 			panic(fmt.Errorf("not found filed :%s", s))
@@ -313,23 +309,24 @@ func Validate(i interface{}) error {
 
 	for idx := 0; idx < iType.NumField(); idx++ {
 		field := iType.Field(idx)
+		value := getNonPtrValue(iValue.Field(idx))
 
-		valid := replaceSelfExp(field.Tag.Get(validTag), iType, iValue)
+		valid := replaceSelfExp(field.Tag.Get(validTag), iValue)
 		if len(valid) == 0 {
 			continue
 		}
 		var doCheck checkFunc
 		switch {
-		case isNumKind[getNonPtrType(field.Type).String()]:
-			checkTagValidate(numRegexp, valid)
-			doCheck = builder(numCompare{})
-		case field.Type.String() == durationType:
+		case value.Type() == durationType: // 时间类型必须放到第一位，因为其基础类型也是 int64，会混淆
 			checkTagValidate(timeRegexp, valid)
 			doCheck = builder(timeCompare{})
+		case isNumKind[value.Kind().String()]:
+			checkTagValidate(numRegexp, valid)
+			doCheck = builder(numCompare{})
 		default:
-			panic("unrecognized field type")
+			panic("unrecognized validation type")
 		}
-		value := getNonPtrValue(iValue.Field(idx))
+
 		checkNumber(value, field.Name)
 		if err := doCheck(field.Name, valid, number2Str(value)); err != nil {
 			return err
