@@ -260,3 +260,28 @@ type Param struct {
 	E uint64
 	F uint64 `valid:"[self.C,self.E]"`
 }
+
+func TestFu(t *testing.T) {
+	type mInt int
+	type mDuration time.Duration
+	type A struct {
+		a *mInt      `valid:"[1,7]"`
+		b *mDuration `valid:"[1m,3m]"`
+	}
+	var (
+		aval = mInt(1)
+		bval = mDuration(time.Minute)
+	)
+	var aa = A{&aval, &bval}
+	tt := getNonPtrValue(reflect.ValueOf(aa))
+	t.Log(tt.Field(0).Elem().Kind())
+	t.Log(Validate(aa))
+}
+
+func TestDuration(t *testing.T) {
+	zero := time.Duration(0)
+	dur := getNonPtrValue(reflect.ValueOf(&zero))
+	//dur1 := reflect.TypeOf(time.Duration(1))
+	//t.Log(dur1 == dur)
+	t.Log(dur.Kind().String())
+}
