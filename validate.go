@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -77,6 +78,10 @@ func ge[T baseOrdered](a, b T) bool {
 	return a >= b
 }
 
+var parseNumberTypeErr = func(t interface{}) error {
+	return fmt.Errorf("can't process number type :%v", t)
+}
+
 func (n *numOrder) lt(control, target interface{}) bool {
 	switch t := control.(type) {
 	case int64:
@@ -86,7 +91,7 @@ func (n *numOrder) lt(control, target interface{}) bool {
 	case float64:
 		return lt(control.(float64), target.(float64))
 	default:
-		panic(fmt.Errorf("can't process type :%v", t))
+		panic(parseNumberTypeErr(t))
 	}
 }
 
@@ -99,7 +104,7 @@ func (n *numOrder) le(control, target interface{}) bool {
 	case float64:
 		return le(control.(float64), target.(float64))
 	default:
-		panic(fmt.Errorf("can't process type :%v", t))
+		panic(parseNumberTypeErr(t))
 	}
 }
 
@@ -112,7 +117,7 @@ func (n *numOrder) ge(control, target interface{}) bool {
 	case float64:
 		return ge(control.(float64), target.(float64))
 	default:
-		panic(fmt.Errorf("can't process type :%v", t))
+		panic(parseNumberTypeErr(t))
 	}
 }
 
@@ -125,7 +130,7 @@ func (n *numOrder) gt(control, target interface{}) bool {
 	case float64:
 		return gt(control.(float64), target.(float64))
 	default:
-		panic(fmt.Errorf("can't process type :%v", t))
+		panic(parseNumberTypeErr(t))
 	}
 }
 
@@ -140,11 +145,12 @@ func parseTimeDuration(val string) (num int64, unit string, err error) {
 }
 
 // checkTagValidate 检查 tag 是否符合语法要求
-func checkTagValidate(exp string, val string) {
+func checkTagValidate(exp string, val string) error {
 	//根据规则提取关键信息
 	if len(regMap[exp].FindString(val)) == 0 {
-		panic(fmt.Errorf("validate tag :%s", val))
+		return fmt.Errorf("unrecognizable tag value :%s", val)
 	}
+	return nil
 }
 
 // parseInt64 将数值或者时间字符串转换成 int64
@@ -200,7 +206,7 @@ func parseAndValidPartition(direction direction, val string, order ordered, cont
 func doCheck(field, val string, control reflect.Value) error {
 	valid := func(direction direction, singlePartition string) error {
 		if succ, hint := parseAndValidPartition(direction, singlePartition, numOrderIns, control); !succ {
-			return fmt.Errorf("validate fail: %s is %s", field, hint)
+			return fmt.Errorf("%s is %s", field, hint)
 		}
 		return nil
 	}
@@ -216,40 +222,49 @@ func doCheck(field, val string, control reflect.Value) error {
 }
 
 // replaceSelfExp 将 self.{字段名} 替换成具体值
-func replaceSelfExp(str string, v reflect.Value) string {
+func replaceSelfExp(str string, v reflect.Value) (_ string, err error) {
 	list := regMap[selfRegexp].FindAllString(str, -1)
 	if len(list) == 0 {
-		return str
+		return str, nil
 	}
 
 	for _, s := range list {
 		name := strings.Trim(s, selfPlaceholder)
 		value := getNonPtrValue(v.FieldByName(name))
 		if !value.IsValid() {
-			panic(fmt.Errorf("not found filed :%s", s))
+			err = appendError(err, fmt.Errorf("self field analyze fail, not found filed :%s", name))
+			continue
 		}
-		//checkNumber(value, s)
-		str = strings.Replace(str, s, number2Str(value), 1)
+		if value.Kind() != v.Kind() {
+			err = appendError(err, fmt.Errorf("self field analyze fail,the type of filed %s is not equal field %s", name, v.Kind()))
+			continue
+		}
+		numberStr, nErr := number2Str(value)
+		if err != nil {
+			err = appendError(err, nErr)
+			continue
+		}
+		str = strings.Replace(str, s, numberStr, 1)
 	}
-	return str
+	return str, nil
 }
 
-func getTypeStruct(t reflect.Type) reflect.Type {
+func getTypeStruct(t reflect.Type) (reflect.Type, error) {
 	if t.Kind() != reflect.Struct && t.Kind() != reflect.Pointer {
-		panic("validate target must be struct")
+		return nil, errors.New("validate target must be struct")
 	}
 	if t.Kind() == reflect.Struct {
-		return t
+		return t, nil
 	}
 	return getTypeStruct(t.Elem())
 }
 
-func getValueStruct(t reflect.Value) reflect.Value {
+func getValueStruct(t reflect.Value) (reflect.Value, error) {
 	if t.Kind() != reflect.Struct && t.Kind() != reflect.Pointer {
-		panic("validate target must be struct")
+		return reflect.Value{}, errors.New("validate target must be struct")
 	}
 	if t.Kind() == reflect.Struct {
-		return t
+		return t, nil
 	}
 	return getValueStruct(t.Elem())
 }
@@ -266,45 +281,64 @@ func getExp(value reflect.Value) string {
 	}
 	return numRegexp
 }
-
-// Validate 校验结构体的字段是否合法
-/*
-- 使用 `valid` tag 进行标记
-- 对于数字类型使用范围校验，通过 [] () 代表边界 ，数字和可以带符号 [+、-] , 可以使用 ~ 代表无穷
-- 对于时间类型，范围校验与数组相同，需要在数字后面加上单位 [milli,m,h,d] ，不支持符号
-- 也可以支持与当前结构体的其他字段进行比较，通过 self.{字段名} 指定 ，注意 int 和 time.Duration 也可以进行比较
-*/
-func Validate(i interface{}) (err error) {
-	iType := getTypeStruct(reflect.TypeOf(i))
-	iValue := getValueStruct(reflect.ValueOf(i))
-
+func appendError(oriErr, newErr error) error {
+	if oriErr == nil {
+		return newErr
+	}
+	if newErr == nil {
+		return oriErr
+	}
+	return fmt.Errorf("%s | %s", oriErr, newErr)
+}
+func validate(i interface{}) (err error) {
+	_appendError := func(newErr error) {
+		err = appendError(err, newErr)
+	}
+	iType, err := getTypeStruct(reflect.TypeOf(i))
+	if err != nil {
+		return err
+	}
+	iValue, err := getValueStruct(reflect.ValueOf(i))
+	if err != nil {
+		return err
+	}
 	for idx := 0; idx < iType.NumField(); idx++ {
 		var (
 			field = iType.Field(idx)
 			value = iValue.Field(idx)
 		)
+		v := getNonPtrValue(value)
 		// 结构体类型递归检查
-		if v := getNonPtrValue(value); v.Kind() == reflect.Struct && v.CanInterface() {
-			if err = Validate(value.Interface()); err != nil {
-				return
-			}
+		if v.Kind() == reflect.Struct && v.CanInterface() {
+			_appendError(Validate(value.Interface()))
+			continue
 		}
 		tag, ok := field.Tag.Lookup(validTag)
 		if !ok {
 			continue
 		}
 		// 检查字段类型是否符合要求
-		if !checkFieldType(field) {
-			panic(fmt.Sprintf("not support type :%s ,field :%s", field.Type, field.Name))
+		if !checkFieldType(v) {
+			_appendError(fmt.Errorf("not support type :%s ,field :%s", field.Type, field.Name))
+			continue
 		}
 		// 如果是空指针返回错误
-		if value.IsNil() {
-			return fmt.Errorf("field %s is nil", field.Name)
+		if value.IsZero() {
+			_appendError(fmt.Errorf("field %s is nil", field.Name))
+			continue
 		}
 		// 转换为具体类型
 		value = getNonPtrValue(value)
-		tag = replaceSelfExp(tag, iValue)
-		checkTagValidate(getExp(value), tag)
+		tag, rErr := replaceSelfExp(tag, iValue)
+		if rErr != nil {
+			_appendError(rErr)
+			continue
+
+		}
+		if cErr := checkTagValidate(getExp(value), tag); cErr != nil {
+			_appendError(cErr)
+			continue
+		}
 		var (
 			control reflect.Value
 		)
@@ -314,17 +348,30 @@ func Validate(i interface{}) (err error) {
 		case value.Kind() == reflect.String: // 字符串类型，复用数值类型的比较器
 			control = reflect.ValueOf(value.Len())
 		default:
+			_appendError(fmt.Errorf("the type %s could not be resolved", value.Kind()))
 			continue
 		}
-		if err = doCheck(field.Name, tag, control); err != nil {
-			return err
+		if dErr := doCheck(field.Name, tag, control); dErr != nil {
+			_appendError(dErr)
+			continue
 		}
 	}
-	return nil
+	return err
 }
 
-func checkFieldType(t reflect.StructField) bool {
-	name := strings.ToLower(t.Type.String())
+// Validate 校验结构体的字段是否合法
+/*
+- 使用 `valid` tag 进行标记
+- 对于数字类型使用范围校验，通过 [] () 代表边界 ，数字和可以带符号 [+、-] , 可以使用 ~ 代表无穷
+- 对于时间类型，范围校验与数组相同，需要在数字后面加上单位 [milli,m,h,d] ，不支持符号
+- 也可以支持与当前结构体的其他字段进行比较，通过 self.{字段名} 指定 ，注意 int 和 time.Duration 也可以进行比较
+*/
+func Validate(i interface{}) (err error) {
+	return validate(i)
+}
+
+func checkFieldType(t reflect.Value) bool {
+	name := strings.ToLower(t.Kind().String())
 	check := func(substr ...string) bool {
 		for _, s := range substr {
 			if strings.Contains(name, s) {
@@ -354,16 +401,15 @@ func parseOrderNum(value reflect.Value, target string) (controlNum, targetNum in
 	}
 	return
 }
-func number2Str(value reflect.Value) string {
+func number2Str(value reflect.Value) (string, error) {
 	if value.CanInt() {
-		return strconv.FormatInt(value.Int(), 10)
+		return strconv.FormatInt(value.Int(), 10), nil
 	}
 	if value.CanUint() {
-		return strconv.FormatUint(value.Uint(), 10)
+		return strconv.FormatUint(value.Uint(), 10), nil
 	}
 	if value.CanFloat() {
-		return strconv.FormatFloat(value.Float(), 'e', 10, 64)
+		return strconv.FormatFloat(value.Float(), 'e', 10, 64), nil
 	}
-
-	panic("getInt err")
+	return "", fmt.Errorf("unrecognizable field :%s", value.Kind())
 }

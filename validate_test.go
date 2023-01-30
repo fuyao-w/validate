@@ -1,7 +1,6 @@
 package validate
 
 import (
-	"math"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -196,8 +195,8 @@ func TestGetStruct(t *testing.T) {
 	}
 	var x = &X{}
 
-	t.Log(getTypeStruct(reflect.TypeOf(x)).Kind())
-	t.Log(getValueStruct(reflect.ValueOf(x)).Kind())
+	t.Log(getTypeStruct(reflect.TypeOf(x)))
+	t.Log(getValueStruct(reflect.ValueOf(x)))
 }
 
 func TestValidate(t *testing.T) {
@@ -245,9 +244,9 @@ func TestParserTimeDur(t *testing.T) {
 }
 
 func TestGetInt(t *testing.T) {
-	var i uint64 = math.MaxUint64
-	var b uint64 = math.MaxUint64
-	numOrderIns.lt(number2Str(reflect.ValueOf(i)), number2Str(reflect.ValueOf(b)))
+	//var i uint64 = math.MaxUint64
+	//var b uint64 = math.MaxUint64
+	//numOrderIns.lt(number2Str(reflect.ValueOf(i)), number2Str(reflect.ValueOf(b)))
 
 }
 
@@ -270,16 +269,16 @@ func TestFu(t *testing.T) {
 	type mInt int
 	type mDuration time.Duration
 	type A struct {
-		a *mInt      `valid:"[1,7]"`
-		b *mDuration `valid:"[1m,3m]"`
+		a *mInt         `valid:"[1,7]"`
+		b *mDuration    `valid:"[1m,3m]"`
+		c time.Duration `valid:"[1m,3m]"`
 	}
 	var (
-		aval = mInt(1)
-		bval = mDuration(time.Minute)
+		aval = mInt(10)
+		bval = mDuration(10 * time.Minute)
 	)
-	var aa = A{&aval, &bval}
-	tt := getNonPtrValue(reflect.ValueOf(aa))
-	t.Log(tt.Field(0).Elem().Kind())
+	var aa = A{&aval, &bval, time.Duration(10 * time.Hour)}
+
 	t.Log(Validate(aa))
 }
 
